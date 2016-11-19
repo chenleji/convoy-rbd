@@ -534,7 +534,12 @@ func (d *Driver) connect() {
 	var cephConn *rados.Conn
 	var err error
 	if d.Cluster == "" {
-		cephConn, err = rados.NewConnWithUser(d.User)
+		if d.User == "" {
+			cephConn, err = rados.NewConn()
+		} else {
+			cephConn, err = rados.NewConnWithUser(d.User)
+		}
+
 	} else {
 		// FIXME: TODO: can't seem to use a cluster name -- get error -22 from go-ceph/rados:
 		// panic: Unable to create ceph connection to cluster=ceph with user=admin: rados: ret=-22
