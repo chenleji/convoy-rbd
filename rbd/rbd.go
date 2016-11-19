@@ -173,9 +173,9 @@ func (d *Driver) CreateVolume(req Request) error {
 		err  error
 	)
 
-	pool := d.DefaultPool
 	name := req.Name
 	fstype := d.DefaultImageFSType
+	pool := d.DefaultPool
 
 	opts := req.Options
 	size, err = d.getSize(opts, d.DefaultVolumeSize)
@@ -183,10 +183,6 @@ func (d *Driver) CreateVolume(req Request) error {
 		return err
 	}
 
-	// Options to override from `docker volume create -o OPT=VAL ...`
-	if req.Options["pool"] != "" {
-		pool = req.Options["pool"]
-	}
 	if req.Options["size"] != "" {
 		size, err = strconv.Atoi(req.Options["size"])
 		if err != nil {
@@ -198,7 +194,7 @@ func (d *Driver) CreateVolume(req Request) error {
 	}
 
 	// check for mount
-	mount := d.mountpoint(pool, name)
+	mount := d.mountPoint(pool, name)
 
 	// do we already know about this volume? return early
 	if _, found := d.rVolumes[mount]; found {
@@ -233,15 +229,9 @@ func (d *Driver) DeleteVolume(req Request) error {
 	defer d.mutex.Unlock()
 
 	var err  error
-	pool := d.DefaultPool
 	name := req.Name
-
-	// Options to override from `docker volume create -o OPT=VAL ...`
-	if req.Options["pool"] != "" {
-		pool = req.Options["pool"]
-	}
-
-	mount := d.mountpoint(pool, name)
+	pool := d.DefaultPool
+	mount := d.mountPoint(pool, name)
 
 	// do we know about this volume? does it matter?
 	if _, found := d.rVolumes[mount]; !found {
@@ -287,24 +277,10 @@ func (d *Driver) MountVolume(req Request) (string, error) {
 	defer d.mutex.Unlock()
 
 	var err  error
-	pool := d.DefaultPool
 	name := req.Name
+	pool := d.DefaultPool
 
-	// Options to override from `docker volume create -o OPT=VAL ...`
-	if req.Options["pool"] != "" {
-		pool = req.Options["pool"]
-	}
-
-	mount := d.mountpoint(pool, name)
-
-	// FIXME: this is failing - see error below - for now we just attempt to grab a lock
-	// check that the image is not locked already
-	//locked, err := d.rbdImageIsLocked(name)
-	//if locked || err != nil {
-	//	log.Printf("ERROR: checking for RBD Image(%s) lock: %s", name, err)
-	//	return dkvolume.Response{Err: "RBD Image locked"}
-	//}
-
+	mount := d.mountPoint(pool, name)
 	locker, err := d.lockImage(pool, name)
 	if err != nil {
 		logrus.Debugf("ERROR: locking RBD Image(%s): %s", name, err)
@@ -355,7 +331,7 @@ func (d *Driver) MountVolume(req Request) (string, error) {
 		Device: device,
 		Locker: locker,
 		FsType: fstype,
-		Pool:   pool,
+		Pool:   d.DefaultPool,
 	}
 
 	return mount, nil
@@ -367,17 +343,12 @@ func (d *Driver) UmountVolume(req Request) error {
 	defer d.mutex.Unlock()
 
 	var err_msgs = []string{}
-
 	var err  error
-	pool := d.DefaultPool
+
 	name := req.Name
+	pool := d.DefaultPool
 
-	// Options to override from `docker volume create -o OPT=VAL ...`
-	if req.Options["pool"] != "" {
-		pool = req.Options["pool"]
-	}
-
-	mount := d.mountpoint(pool, name)
+	mount := d.mountPoint(pool, name)
 
 	// check if it's in our mounts - we may not know about it if plugin was started late?
 	vol, found := d.rVolumes[mount]
@@ -398,7 +369,6 @@ func (d *Driver) UmountVolume(req Request) error {
 	err = d.unmountDevice(vol.Device)
 	if err != nil {
 		logrus.Debugf("ERROR: unmounting device(%s): %s", vol.Device, err)
-		// failsafe: will attempt to unmap and unlock
 		err_msgs = append(err_msgs, "Error unmounting device")
 	}
 
@@ -406,7 +376,6 @@ func (d *Driver) UmountVolume(req Request) error {
 	err = d.unmapImageDevice(vol.Device)
 	if err != nil {
 		logrus.Debugf("ERROR: unmapping image device(%s): %s", vol.Device, err)
-		// failsafe: attempt to unlock
 		err_msgs = append(err_msgs, "Error unmapping kernel device")
 	}
 
@@ -432,15 +401,8 @@ func (d *Driver) MountPoint(req Request) (string, error) {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	pool := d.DefaultPool
 	name := req.Name
-
-	// Options to override from `docker volume create -o OPT=VAL ...`
-	if req.Options["pool"] != "" {
-		pool = req.Options["pool"]
-	}
-
-	mountPath := d.mountpoint(pool, name)
+	mountPath := d.mountPoint(d.DefaultPool, name)
 	logrus.Debugf("INFO: Path request(%s) => %s", name, mountPath)
 
 	return mountPath, nil
@@ -451,20 +413,21 @@ func (d *Driver) GetVolumeInfo(name string) (map[string]string, error) {
 	defer d.mutex.RUnlock()
 
 	pool := d.DefaultPool
+
 	// Check to see if the image exists
 	exists, err := d.rbdImageExists(pool, name)
 	if err != nil {
 		logrus.Debugf("WARN: checking for RBD Image: %s", err)
 		return nil, err
 	}
-	mountPath := d.mountpoint(pool, name)
+	mountPath := d.mountPoint(pool, name)
 	if !exists {
 		logrus.Debugf("WARN: Image %s does not exist", name)
 		delete(d.rVolumes, mountPath)
 		return nil, err
 	}
 	logrus.Debugf("INFO: Get request(%s) => %s", name, mountPath)
-	// TODO: what to do if the mountpoint registry (d.volumes) has a different name?
+	// TODO: what to do if the mountPoint registry (d.volumes) has a different name?
 
 	result := map[string]string{
 		OPT_VOLUME_NAME:         name,
@@ -530,20 +493,18 @@ func (d *Driver) connect() {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	// create reusable go-ceph Client Connection
-	var cephConn *rados.Conn
 	var err error
 	if d.Cluster == "" {
 		if d.User == "" {
-			cephConn, err = rados.NewConn()
+			d.Conn, err = rados.NewConn()
 		} else {
-			cephConn, err = rados.NewConnWithUser(d.User)
+			d.Conn, err = rados.NewConnWithUser(d.User)
 		}
 
 	} else {
 		// FIXME: TODO: can't seem to use a cluster name -- get error -22 from go-ceph/rados:
 		// panic: Unable to create ceph connection to cluster=ceph with user=admin: rados: ret=-22
-		cephConn, err = rados.NewConnWithClusterAndUser(d.Cluster, d.User)
+		d.Conn, err = rados.NewConnWithClusterAndUser(d.Cluster, d.User)
 	}
 	if err != nil {
 		logrus.Debugf("ERROR: Unable to create ceph connection to cluster=%s with user=%s: %s", d.Cluster, d.User, err)
@@ -551,21 +512,18 @@ func (d *Driver) connect() {
 
 	// read ceph.conf and setup connection
 	if d.Config == "" {
-		err = cephConn.ReadDefaultConfigFile()
+		err = d.Conn.ReadDefaultConfigFile()
 	} else {
-		err = cephConn.ReadConfigFile(d.Config)
+		err = d.Conn.ReadConfigFile(d.Config)
 	}
 	if err != nil {
 		logrus.Debugf("ERROR: Unable to read ceph config: %s", err)
 	}
 
-	err = cephConn.Connect()
+	err = d.Conn.Connect()
 	if err != nil {
 		logrus.Debugf("ERROR: Unable to connect to Ceph: %s", err)
 	}
-
-	// can now set conn in driver
-	d.Conn = cephConn
 
 	// setup the default context (pool most likely to be used)
 	defaultContext, err := d.openContext(d.DefaultPool)
@@ -576,24 +534,23 @@ func (d *Driver) connect() {
 }
 
 // mapImage will map the RBD Image to a kernel device
-func (d *Driver) mapImage(pool, imagename string) (string, error) {
-	return sh("rbd", "map", "--id", d.User, "--pool", pool, imagename)
+func (d *Driver) mapImage(pool, imageName string) (string, error) {
+	return sh("rbd", "map", "--pool", pool, imageName)
 }
 
 // unmapImageDevice will release the mapped kernel device
-// TODO: does this operation even require a user --id ? I can unmap a device without or with a different id and rbd doesn't seem to care
 func (d *Driver) unmapImageDevice(device string) error {
 	_, err := sh("rbd", "unmap", device)
 	return err
 }
 
-func (d *Driver) mountpoint(pool, name string) string {
+func (d *Driver) mountPoint(pool, name string) string {
 	return filepath.Join(d.Root, pool, name)
 }
 
 // lockImage locks image and returns locker cookie name
-func (d *Driver) lockImage(pool, imagename string) (string, error) {
-	logrus.Debugf("INFO: lockImage(%s/%s)", pool, imagename)
+func (d *Driver) lockImage(pool, imageName string) (string, error) {
+	logrus.Debugf("INFO: lockImage(%s/%s)", pool, imageName)
 
 	ctx, err := d.openContext(pool)
 	if err != nil {
@@ -602,12 +559,12 @@ func (d *Driver) lockImage(pool, imagename string) (string, error) {
 	defer d.shutdownContext(ctx)
 
 	// build image struct
-	rbdImage := rbd.GetImage(ctx, imagename)
+	rbdImage := rbd.GetImage(ctx, imageName)
 
 	// open it (read-only)
 	err = rbdImage.Open(true)
 	if err != nil {
-		logrus.Debugf("ERROR: opening rbd image(%s): %s", imagename, err)
+		logrus.Debugf("ERROR: opening rbd image(%s): %s", imageName, err)
 		return "", err
 	}
 	defer rbdImage.Close()
@@ -622,11 +579,11 @@ func (d *Driver) lockImage(pool, imagename string) (string, error) {
 }
 
 // unlockImage releases the exclusive lock on an image
-func (d *Driver) unlockImage(pool, imagename, locker string) error {
+func (d *Driver) unlockImage(pool, imageName, locker string) error {
 	if locker == "" {
-		return errors.New(fmt.Sprintf("Unable to unlock image(%s/%s) for empty locker", pool, imagename))
+		return errors.New(fmt.Sprintf("Unable to unlock image(%s/%s) for empty locker", pool, imageName))
 	}
-	logrus.Debugf("INFO: unlockImage(%s/%s, %s)", pool, imagename, locker)
+	logrus.Debugf("INFO: unlockImage(%s/%s, %s)", pool, imageName, locker)
 
 	ctx, err := d.openContext(pool)
 	if err != nil {
@@ -635,12 +592,12 @@ func (d *Driver) unlockImage(pool, imagename, locker string) error {
 	defer d.shutdownContext(ctx)
 
 	// build image struct
-	rbdImage := rbd.GetImage(ctx, imagename)
+	rbdImage := rbd.GetImage(ctx, imageName)
 
 	// open it (read-only)
 	err = rbdImage.Open(true)
 	if err != nil {
-		logrus.Debugf("ERROR: opening rbd image(%s): %s", imagename, err)
+		logrus.Debugf("ERROR: opening rbd image(%s): %s", imageName, err)
 		return err
 	}
 	defer rbdImage.Close()
@@ -675,7 +632,7 @@ func (d *Driver) rbdImageExists(pool, findName string) (bool, error) {
 
 // createRBDImage will create a new Ceph block device and make a filesystem on it
 func (d *Driver) createRBDImage(pool string, name string, size int, fstype string) error {
-	logrus.Debugf("INFO: Attempting to create RBD Image: (%s/%s, %s, %s)", pool, name, size, fstype)
+	logrus.Debugf("INFO: Attempting to create RBD Image: (%s, %s, %s)", name, size, fstype)
 
 	// check that fs is valid type (needs mkfs.fstype in PATH)
 	mkfs, err := exec.LookPath("mkfs." + fstype)
@@ -692,9 +649,8 @@ func (d *Driver) createRBDImage(pool string, name string, size int, fstype strin
 	//	"--image-features", strconv.Itoa(4),
 	_, err = sh(
 		"rbd", "create",
-		"--id", d.User,
-		"--pool", pool,
 		"--image-format", strconv.Itoa(2),
+		"--pool", pool,
 		"--size", strconv.Itoa(size),
 		name,
 	)
@@ -749,26 +705,8 @@ func (d *Driver) removeRBDImage(pool, name string) error {
 	// remove the block device image
 	_, err := sh(
 		"rbd", "rm",
-		"--id", d.User,
 		"--pool", pool,
 		name,
-	)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// renameRBDImage will move a Ceph RBD image to new name
-func (d *Driver) renameRBDImage(pool, name, newname string) error {
-	logrus.Debugf("INFO: Rename RBD Image(%s/%s -> %s)", pool, name, newname)
-
-	_, err := sh(
-		"rbd", "rename",
-		"--id", d.User,
-		"--pool", pool,
-		name,
-		newname,
 	)
 	if err != nil {
 		return err
