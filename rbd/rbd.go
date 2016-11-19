@@ -425,7 +425,6 @@ func (d *Driver) GetVolumeInfo(name string) (map[string]string, error) {
 		return nil, err
 	}
 	logrus.Debugf("INFO: Get request(%s) => %s", name, mountPath)
-	// TODO: what to do if the mountPoint registry (d.volumes) has a different name?
 
 	result := map[string]string{
 		OPT_VOLUME_NAME:         name,
@@ -440,8 +439,10 @@ func (d *Driver) ListVolume(opts map[string]string) (map[string]map[string]strin
 	var err error
 
 	volumes := make(map[string]map[string]string)
-	for k, v := range d.rVolumes {
-		volumes[k], err = d.GetVolumeInfo(v.Name)
+	logrus.Debugln(d.rVolumes)
+	for _, v := range d.rVolumes {
+		logrus.Debugln(v)
+		volumes[v.Name], err = d.GetVolumeInfo(v.Name)
 		if err != nil {
 			return nil, err
 		}
