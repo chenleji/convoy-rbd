@@ -536,21 +536,26 @@ func (d *Driver) mapImage(pool, imageName string) (string, error) {
 	_, err := sh("rbd", "map", "--pool", pool, imageName)
 	if err != nil{
 		logrus.Debugf("ERROR: 'rbd map --pool %s %s' failed!", pool, imageName)
-		return nil, err
+		return "", err
 	}
 
 	output, err := sh("rbd", "showmapped")
 	lines := strings.Split(output, "\n")[1:]
-	logrus.Debugln("lines:%s", lines)
+
 	for _, line := range lines {
-		logrus.Debugln("line:%s", line)
 		words := strings.Split(line, " ")
-		logrus.Debugln("words:%s", words)
-		if pool == words[1] && imageName == words[2]{
-			return words[4], nil
+		nw := make([]string, 0)
+		for _, v := range words{
+			v = strings.Replace(v, " ", "", -1)
+			if v != "" {
+				nw = append(nw, v)
+			}
+		}
+		if pool == nw[1] && imageName == nw[2]{
+			return nw[4], nil
 		}
 	}
-	return "", ""
+	return "", err
 }
 
 // unmapImageDevice will release the mapped kernel device
