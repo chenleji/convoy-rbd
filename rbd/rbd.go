@@ -287,22 +287,20 @@ func (d *Driver) MountVolume(req Request) (string, error) {
 		return "", err
 	}
 
-	// map and mount the RBD image -- these are OS level Ceph commands, not avail in go-ceph
-	// map
+	// map and mount the RBD image -- these are OS level Ceph commands, not avail in go-ceph map
 	device, err := d.mapImage(pool, name)
 	if err != nil {
 		logrus.Debugf("ERROR: mapping RBD Image(%s) to kernel device: %s", name, err)
-		// failsafe: need to release lock
 		defer d.unlockImage(pool, name, locker)
 		return "", err
 	}
 
 	// determine device FS type
-	fstype, err := d.deviceType(device)
+	fsType, err := d.deviceType(device)
 	if err != nil {
 		logrus.Debugf("WARN: unable to detect RBD Image(%s) fstype: %s", name, err)
 		// NOTE: don't fail - FOR NOW we will assume default plugin fstype
-		fstype = d.DefaultImageFSType
+		fsType = d.DefaultImageFSType
 	}
 
 	// check for mountdir - create if necessary
@@ -316,7 +314,7 @@ func (d *Driver) MountVolume(req Request) (string, error) {
 	}
 
 	// mount
-	err = d.mountDevice(device, mount, fstype)
+	err = d.mountDevice(device, mount, fsType)
 	if err != nil {
 		logrus.Debugf("ERROR: mounting device(%s) to directory(%s): %s", device, mount, err)
 		// need to release lock and unmap kernel device
@@ -330,7 +328,7 @@ func (d *Driver) MountVolume(req Request) (string, error) {
 		Name:   name,
 		Device: device,
 		Locker: locker,
-		FsType: fstype,
+		FsType: fsType,
 		Pool:   d.DefaultPool,
 	}
 
@@ -535,7 +533,24 @@ func (d *Driver) connect() {
 
 // mapImage will map the RBD Image to a kernel device
 func (d *Driver) mapImage(pool, imageName string) (string, error) {
-	return sh("rbd", "map", "--pool", pool, imageName)
+	_, err := sh("rbd", "map", "--pool", pool, imageName)
+	if err != nil{
+		logrus.Debugf("ERROR: 'rbd map --pool %s %s' failed!", pool, imageName)
+		return nil, err
+	}
+
+	output, err := sh("rbd", "showmapped")
+	lines := strings.Split(output, "\n")[1:]
+	logrus.Debugln("lines:%s", lines)
+	for _, line := range lines {
+		logrus.Debugln("line:%s", line)
+		words := strings.Split(line, " ")
+		logrus.Debugln("words:%s", words)
+		if pool == words[1] && imageName == words[2]{
+			return words[4], nil
+		}
+	}
+	return "", ""
 }
 
 // unmapImageDevice will release the mapped kernel device
