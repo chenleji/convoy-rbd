@@ -93,12 +93,17 @@ func Init(root string, config map[string]string) (ConvoyDriver, error) {
 	defaultVolumeSize := config[CEPH_DEFAULT_VOLUME_SIZE]
 	defaultFSType := config[CEPH_DEFAULT_FS_TYPE]
 
+	size, err := strconv.Atoi(defaultVolumeSize)
+	if err != nil {
+		panic(err)
+	}
+
 	dev := &Device{
 		Root:               root,
 		Cluster: 	    cluster,
 		Config:		    cephConfigFile,
 		DefaultPool: 	    defaultVolumePool,
-		DefaultVolumeSize:  int64(strconv.Atoi(defaultVolumeSize)),
+		DefaultVolumeSize:  size,
 		DefaultImageFSType: defaultFSType,
 	}
 
