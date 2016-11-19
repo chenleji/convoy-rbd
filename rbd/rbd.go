@@ -98,7 +98,7 @@ func Init(root string, config map[string]string) (ConvoyDriver, error) {
 		Cluster: 	    cluster,
 		Config:		    cephConfigFile,
 		DefaultPool: 	    defaultVolumePool,
-		DefaultVolumeSize:  defaultVolumeSize,
+		DefaultVolumeSize:  int64(strconv.Atoi(defaultVolumeSize)),
 		DefaultImageFSType: defaultFSType,
 	}
 
@@ -164,7 +164,7 @@ func (d *Driver) CreateVolume(req Request) error {
 	defer d.mutex.Unlock()
 
 	var (
-		size int64
+		size int
 		err  error
 	)
 
@@ -462,7 +462,6 @@ func (d *Driver) GetVolumeInfo(name string) (map[string]string, error) {
 	// TODO: what to do if the mountpoint registry (d.volumes) has a different name?
 
 	result := map[string]string{
-		"Device":                d.Device,
 		OPT_VOLUME_NAME:         name,
 		OPT_MOUNT_POINT:         mountPath,
 		}
@@ -794,12 +793,13 @@ func (d *Driver) unmountDevice(device string) error {
 	return err
 }
 
-func (d *Driver) getSize(opts map[string]string, defaultVolumeSize int64) (int64, error) {
+func (d *Driver) getSize(opts map[string]string, defaultVolumeSize int64) (int, error) {
 	size := opts[OPT_SIZE]
 	if size == "" || size == "0" {
 		size = strconv.FormatInt(defaultVolumeSize, 10)
 	}
-	return util.ParseSize(size)
+	size64, err := util.ParseSize(size)
+	return int(size64), err
 }
 
 // sh is a simple os.exec Command tool, returns trimmed string output
