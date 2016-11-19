@@ -64,7 +64,7 @@ type Driver struct {
 	mutex      *sync.RWMutex
 	rVolumes   map[string]*RBDVolume
 	User       string
-	Secret     string
+	//Secret     string
 	Device
 }
 
@@ -88,7 +88,7 @@ func Init(root string, config map[string]string) (ConvoyDriver, error) {
 	cluster := config[CEPH_CLUSTER]
 	cephConfigFile := config[CEPH_CONFIG]
 	user := config[CEPH_DEFAULT_USER]
-	secret := config[CEPH_SECRET]
+	//secret := config[CEPH_SECRET]
 	defaultVolumePool := config[CEPH_DEFAULT_POOL]
 	defaultVolumeSize := config[CEPH_DEFAULT_VOLUME_SIZE]
 	defaultFSType := config[CEPH_DEFAULT_FS_TYPE]
@@ -111,7 +111,7 @@ func Init(root string, config map[string]string) (ConvoyDriver, error) {
 		mutex:      &sync.RWMutex{},
 		rVolumes:   map[string]*RBDVolume{},
 		User:       user,
-		Secret:     secret,
+		//Secret:     secret,
 		Device:     *dev,
 	}
 
@@ -129,7 +129,7 @@ func (d *Driver) Info() (map[string]string, error) {
 		"Root":        d.Root,
 		"RBDCluster":  d.Cluster,
 		"RBDUser":     d.User,
-		"RBDSecret":   d.Secret,
+		//"RBDSecret":   d.Secret,
 		"DefaultPool": d.DefaultPool,
 		"DefaultVolumeSize": strconv.FormatInt(d.DefaultVolumeSize, 10),
 		"DefaultImageFSType": d.DefaultImageFSType,
