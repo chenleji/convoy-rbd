@@ -103,7 +103,7 @@ func Init(root string, config map[string]string) (ConvoyDriver, error) {
 		Cluster: 	    cluster,
 		Config:		    cephConfigFile,
 		DefaultPool: 	    defaultVolumePool,
-		DefaultVolumeSize:  size,
+		DefaultVolumeSize:  int64(size),
 		DefaultImageFSType: defaultFSType,
 	}
 
